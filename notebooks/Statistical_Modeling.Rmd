@@ -1,0 +1,143 @@
+# In this notebook, we will perform modeling for our project
+
+# Dataset Loading
+Lets load the data
+```{r}
+taxi_data = read.csv('../data/curated/model_data.csv')
+taxi_data <- taxi_data[order(taxi_data$Date, taxi_data$Hour),]
+```
+
+Convert Hour to a factor 
+```{r}
+taxi_data$Hour <- as.factor(taxi_data$Hour)
+```
+
+
+Add the last feature 'Date_seq'. This feature measure the 'time series' element of the datasheet, by sequencing the records by the of days after the first recording (September 1st).
+
+```{r}
+taxi_data$Date_seq <-  as.Date(taxi_data$Date) 
+taxi_data$Date_seq <- as.integer(taxi_data$Date_seq - taxi_data$Date_seq[1])
+```
+
+
+Before the model(s) are trained, a training and test set needs to be segmented, which
+will occur on march 1st 2022. In other words the first week of march with be used to estimate on 
+```{r}
+training_data <- taxi_data[which(taxi_data$Date < "2022-03-01"),]
+test_data <- taxi_data[which(taxi_data$Date >= "2022-03-01"),]
+```
+
+Now, the date column can be removed
+```{r}
+training_data = subset(training_data, select = -c(Date))
+
+```
+
+# Poisson regression
+
+Lets fit the poisson regression models 
+```{r}
+# Normal 
+model_P <- glm(Count ~ Date_seq + Day + Borough_Zone + DEW + TMP + WND + holiday + Covid_7AVG + Hour,data = training_data, family = poisson())
+# This is for interaction
+model_P_I <- glm(Count ~ Date_seq + DEW + TMP + WND + holiday + Covid_7AVG + Hour + Day + Borough_Zone + Day*Borough_Zone + holiday*Borough_Zone + Hour*Day + Covid_7AVG * Day + Hour*Borough_Zone + Hour*TMP + Hour*WND + Hour*DEW,data = training_data, family = poisson())
+```
+
+Now create a table to compare the the models 
+```{r}
+anova_poisson <- anova(model_P, model_P_I)
+anova_results1 <- data.frame(cbind(c("Model Poisson", "Model Poisson Interaction"), 
+                                   cbind(round(anova_poisson$`Resid. Df`, 2), round(anova_poisson$`Resid. Dev`, 2), rbind('', round(anova_poisson$Df[2], 2)), rbind('', round(anova_poisson$Deviance[2], 2)))))
+colnames(anova_results1) <- c("", 'Resid. Dev', 'Resid. Dev',  'Df Deviance', 'Deviance')
+row.names(anova_results1) <- NULL
+anova_results1
+# This is then manually translated into the report in overleaf
+```
+
+
+Obtain mean and variance of data to show data is over dispersed
+```{r}
+#Mean
+sum(training_data$Count) / length(training_data$Count)
+# Variance
+var(training_data$Count)
+```
+
+```{r}
+#uncomment to get the dispersion paramete
+model_P <- glm(Count ~ Date_seq + Day + Borough_Zone + DEW + TMP + WND + holiday + Covid_7AVG + Hour,data = training_data, family = quasipoisson())
+dispersion_moded <- summary(model_P)
+dispersion_moded$dispersion
+```
+
+Now fit the final Poisson regression model (Model 1 Interaction)
+```{r}
+# Fit the final model
+model_P_Final <- glm(Count ~ Date_seq + DEW + TMP + WND + holiday + Covid_7AVG + Hour + Day + Borough_Zone + Day*Borough_Zone + holiday*Borough_Zone + Hour*Day + Covid_7AVG * Day + Hour*Borough_Zone + Hour*TMP + Hour*WND + Hour*DEW,data = training_data, family = quasipoisson())
+```
+Look at Final model summary results
+```{r}
+poisson_final_statistics <- summary(model_P_Final)
+```
+The coefficients of the first few predictors were manually inputted into an overleaf table
+```{r}
+poisson_final_statistics$coefficients
+```
+
+This results in a Residual deviance:  2259988  on 34478  degrees of freedom, with a dispersion parameter estimate of 68.44544 (cut to a quarter compared to model_P with quasi).
+
+# Negative binomial
+Fit the negative binomial glm. with interaction terms specified in Model 1 Interaction
+
+```{r}
+# From requirements
+library(MASS)
+model_NB_I <- glm.nb(Count ~ Date_seq + DEW + TMP + WND + holiday + Covid_7AVG + Hour + Day + Borough_Zone + Day*Borough_Zone + holiday*Borough_Zone + Hour*Day + Covid_7AVG * Day + Hour*Borough_Zone + Hour*TMP + Hour*WND + Hour*DEW,data = training_data)
+```
+Now produce diagnosis plots for both models
+
+firstly, lets plot negative binomial
+```{r}
+plot(model_NB_I, sub.caption = '')
+```
+Next plot poisson
+```{r}
+plot(model_P_Final, sub.caption = '')
+
+```
+Note: all the plots were saved manually
+
+Finally, lets compare the perdictive power of the 2 models on future data, which will be take as the next day in the series March 1st 2022 (trained on September 2021 - February 2022)
+```{r}
+# lets take the 1st of march for Brooklyn, the most variate
+test_case <- test_data[test_data$Borough_Zone == 'Brooklyn' & test_data$Date == '2022-03-01',]
+test_case <- subset(test_case, select = -c(Date))
+rownames(test_case) <- test_case$Hour
+Pois_predict <- predict(model_P_Final,newdata = test_case, type = 'response')
+NegBin_predict <- predict(model_NB_I,newdata = test_case, type = 'response')
+```
+Not ggplot2 library will be used plot the table
+```{r}
+# create a dataframe
+Type <- c(rep("Poisson Estimate" , 24) , rep("Neg.Bin. Estimate" , 24) , rep("Ground Truth" , 24))
+Hour <- rep(test_case$Hour , 3)
+Rideshare_Demand <- c(Pois_predict, NegBin_predict, test_case$Count)
+datas <- data.frame(Model,Hour,val)
+```
+
+```{r}
+library(ggplot2)
+ggplot(datas, aes(fill=Type, y=Rideshare_Demand, x=Hour)) + 
+    geom_bar(width = 0.8, position="dodge", stat="identity") + ggtitle("Comparison of Estimated Rideservice Demand for Brooklyn 1st March 2022") +
+  xlab("Hour") + ylab("Number of Trips in Brooklyn") + labs(fill = "Estimate Type")
+ggsave(
+  'March_1st_2022_Brooklyn_Prediction.png',
+  plot = last_plot(),
+  device = 'png',
+  path = '../Plots',
+  scale = 1,
+  dpi = 300,
+)
+```
+

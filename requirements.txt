@@ -1,0 +1,25 @@
+To run the notebooks sucessfully, some additional requriment detailed below are to be followed
+
+# Taxi Datasets
+Firstly, from the tlc website (https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page), 
+the High Volume For-Hire Vehicle Trip Records (Parquet) starting from Setember 2021, through to March 2022 
+must be downloaded into the data/raw directory of the repository. I would have wrote a script, but could not 
+get it to work. 
+
+
+# Python libraries
+For python the following packages need to be installed:
+
+ - pip3 install seaborn 
+ - pip3 install geopandas
+ - pip3 install folium
+ - pip3 install matplotlib
+ - pip3 install numpy (if not installed) 
+ - pip3 install workalendar 
+ 
+
+# R libraries
+Apart from regular libraries, there are
+- install.packages(MASS)
+- install.packages(ggplot2)
+
